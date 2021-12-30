@@ -72,16 +72,15 @@ mkAuthMethodConfig = AuthMethodConfig
 -- | This endpoint enables a new auth method. After enabling, the auth method
 -- can be accessed and configured via the auth path specified as part of the
 -- URL. This auth path will be nested under the auth prefix.
-enableAuthMethod :: MountPoint -> AuthMethodEnable -> VaultRequest ()
+enableAuthMethod :: MountPoint -> AuthMethodEnable -> VaultWrite
 enableAuthMethod path conf =
-  mkVaultRequestJSON methodPost ["v1", "sys", "auth", unMountPoint path]
-     conf ExpectsNoContent
+  mkVaultWriteJSON methodPost ["v1", "sys", "auth", unMountPoint path]
+     conf
 
 -- | This endpoint disables the auth method at the given auth path.
-disableAuthMethod :: MountPoint -> VaultRequest ()
+disableAuthMethod :: MountPoint -> VaultWrite
 disableAuthMethod path =
-  mkVaultRequest methodDelete ["v1", "sys", "auth", unMountPoint path] Nothing
-    ExpectsNoContent
+  mkVaultWrite_ methodDelete ["v1", "sys", "auth", unMountPoint path]
 
 data AuthMethodTuning = AuthMethodTuning
   { default_lease_ttl            :: Int
@@ -144,16 +143,15 @@ instance FromJSON AuthMethodTuning where
 
 
 -- | This endpoint reads the given auth path's configuration.
-readAuthMethodTuning :: MountPoint -> VaultRequest (VaultResponse AuthMethodTuning)
+readAuthMethodTuning :: MountPoint -> VaultRequest AuthMethodTuning
 readAuthMethodTuning mp =
-  mkVaultRequest methodGet ["v1", "sys", "auth", unMountPoint mp, "tune"]
-    Nothing Expects
+  mkVaultRequest_ methodGet ["v1", "sys", "auth", unMountPoint mp, "tune"]
 
 -- | Tune configuration parameters for a given auth path.
-tuneAuthMethod :: MountPoint -> AuthMethodTuning -> VaultRequest ()
+tuneAuthMethod :: MountPoint -> AuthMethodTuning -> VaultWrite
 tuneAuthMethod mp conf =
-  mkVaultRequestJSON methodPost ["v1", "sys", "auth", unMountPoint mp, "tune"]
-    conf ExpectsNoContent
+  mkVaultWriteJSON methodPost ["v1", "sys", "auth", unMountPoint mp, "tune"]
+  conf
 
 concat <$> sequence
   [ vaultDeriveToJSON ''AuthMethodConfig

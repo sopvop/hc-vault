@@ -142,12 +142,12 @@ mkAppRole = AppRole
 
 appRoleListRolesAt
   :: MountPoint
-  -> VaultRequest (VaultResponse (KeyList AppRoleName))
+  -> VaultRequest (KeyList AppRoleName)
 appRoleListRolesAt mp = mkVaultRequest methodList
   ["v1", "auth", unMountPoint mp, "role"]
-   Nothing Expects
+   Nothing
 
-appRoleListRoles :: VaultRequest (VaultResponse (KeyList AppRoleName))
+appRoleListRoles :: VaultRequest (KeyList AppRoleName)
 appRoleListRoles = appRoleListRolesAt "approle"
 
 appRoleReadRoleAt
@@ -156,7 +156,7 @@ appRoleReadRoleAt
   -> VaultRequest AppRole
 appRoleReadRoleAt mp nm = mkVaultRequest methodGet
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm]
-  Nothing Expects
+  Nothing
 
 appRoleReadRole :: AppRoleName -> VaultRequest AppRole
 appRoleReadRole = appRoleReadRoleAt "approle"
@@ -165,12 +165,12 @@ appRoleCreateRoleAt
   :: MountPoint
   -> AppRoleName
   -> AppRole
-  -> VaultRequest ()
-appRoleCreateRoleAt mp nm v = mkVaultRequestJSON methodPost
+  -> VaultWrite
+appRoleCreateRoleAt mp nm v = mkVaultWriteJSON methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm]
-  v ExpectsNoContent
+  v
 
-appRoleCreateRole :: AppRoleName -> AppRole -> VaultRequest ()
+appRoleCreateRole :: AppRoleName -> AppRole -> VaultWrite
 appRoleCreateRole = appRoleCreateRoleAt "approle"
 
 appRoleDeleteRoleAt
@@ -179,7 +179,7 @@ appRoleDeleteRoleAt
   -> VaultRequest ()
 appRoleDeleteRoleAt mp nm = mkVaultRequest methodDelete
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm]
-  Nothing ExpectsNoContent
+  Nothing
 
 appRoleDeleteRole :: AppRoleName -> VaultRequest ()
 appRoleDeleteRole = appRoleDeleteRoleAt "approle"
@@ -200,7 +200,6 @@ instance Show AppRoleSecretId where
 newtype AppRoleRoleId = AppRoleRoleId
   { role_id :: AppRoleId }
 
-
 instance FromJSON AppRoleRoleId where
   parseJSON = withObject "AppRoleRoleId" $ \o ->
     AppRoleRoleId <$> o .: "role_id"
@@ -215,26 +214,26 @@ instance ToJSON AppRoleRoleId where
 appRoleReadRoleIdAt
   :: MountPoint
   -> AppRoleName
-  -> VaultRequest  (VaultResponse AppRoleRoleId)
+  -> VaultRequest AppRoleRoleId
 appRoleReadRoleIdAt mp nm = mkVaultRequest methodGet
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "role-id"]
-  Nothing Expects
+  Nothing
 
 appRoleReadRoleId
   :: AppRoleName
-  -> VaultRequest (VaultResponse AppRoleRoleId)
+  -> VaultRequest AppRoleRoleId
 appRoleReadRoleId = appRoleReadRoleIdAt "approle"
 
 appRoleUpdateRoleIdAt
   :: MountPoint
   -> AppRoleName
   -> AppRoleId
-  -> VaultRequest ()
-appRoleUpdateRoleIdAt mp nm v = mkVaultRequestJSON methodPost
+  -> VaultWrite
+appRoleUpdateRoleIdAt mp nm v = mkVaultWriteJSON methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "role-id"]
-  (AppRoleRoleId v) ExpectsNoContent
+  (AppRoleRoleId v)
 
-appRoleUpdateRoleId :: AppRoleName -> AppRoleId -> VaultRequest ()
+appRoleUpdateRoleId :: AppRoleName -> AppRoleId -> VaultWrite
 appRoleUpdateRoleId = appRoleUpdateRoleIdAt "approle"
 
 
@@ -291,30 +290,30 @@ appRoleGenerateSecretIdAt
   :: MountPoint
   -> AppRoleName
   -> AppRoleGenerateSecretId
-  -> VaultRequest (VaultResponse AppRoleGeneratedSecretId)
+  -> VaultRequest AppRoleGeneratedSecretId
 appRoleGenerateSecretIdAt mp nm v =
   mkVaultRequestJSON methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "secret-id"]
-  v Expects
+  v
 
 appRoleGenerateSecretId
   :: AppRoleName
   -> AppRoleGenerateSecretId
-  -> VaultRequest (VaultResponse AppRoleGeneratedSecretId)
+  -> VaultRequest AppRoleGeneratedSecretId
 appRoleGenerateSecretId  = appRoleGenerateSecretIdAt "approle"
 
 appRoleListSecretIdAccessorsAt
   :: MountPoint
   -> AppRoleName
-  -> VaultRequest (VaultResponse (KeyList AppRoleSecretIdAccessor))
+  -> VaultRequest (KeyList AppRoleSecretIdAccessor)
 appRoleListSecretIdAccessorsAt mp nm =
   mkVaultRequest methodList
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "secret-id"]
-  Nothing Expects
+  Nothing
 
 appRoleListSecretIdAccessors
   :: AppRoleName
-  -> VaultRequest (VaultResponse (KeyList AppRoleSecretIdAccessor))
+  -> VaultRequest (KeyList AppRoleSecretIdAccessor)
 appRoleListSecretIdAccessors = appRoleListSecretIdAccessorsAt "approle"
 
 
@@ -337,18 +336,18 @@ readAppRoleSecretIdInfoAt
   :: MountPoint
   -> AppRoleName
   -> AppRoleSecretId
-  -> VaultRequest (VaultResponse AppRoleSecretIdInfo)
+  -> VaultRequest AppRoleSecretIdInfo
 readAppRoleSecretIdInfoAt mp nm sec =
   mkVaultRequest methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "secret-id", "lookup"]
-  (Just payload) Expects
+  (Just payload)
   where
     payload = BL.toLazyByteString . fromEncoding . pairs $ "secret_id" .= sec
 
 readAppRoleSecretIdInfo
   :: AppRoleName
   -> AppRoleSecretId
-  -> VaultRequest (VaultResponse AppRoleSecretIdInfo)
+  -> VaultRequest AppRoleSecretIdInfo
 readAppRoleSecretIdInfo = readAppRoleSecretIdInfoAt "approle"
 
 
@@ -356,47 +355,47 @@ readAppRoleSecretIdAccessorInfoAt
   :: MountPoint
   -> AppRoleName
   -> AppRoleSecretIdAccessor
-  -> VaultRequest (VaultResponse AppRoleSecretIdInfo)
+  -> VaultRequest AppRoleSecretIdInfo
 readAppRoleSecretIdAccessorInfoAt mp nm sec =
   mkVaultRequest methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "secret-id-accessor", "lookup"]
-  (Just payload) Expects
+  (Just payload)
   where
     payload = BL.toLazyByteString . fromEncoding . pairs $ "secret_id_accessor" .= sec
 
 readAppRoleSecretIdAccessorInfo
   :: AppRoleName
   -> AppRoleSecretIdAccessor
-  -> VaultRequest (VaultResponse AppRoleSecretIdInfo)
+  -> VaultRequest AppRoleSecretIdInfo
 readAppRoleSecretIdAccessorInfo = readAppRoleSecretIdAccessorInfoAt "approle"
 
 destroyAppRoleSecretIdAccessorAt
   :: MountPoint
   -> AppRoleName
   -> AppRoleSecretIdAccessor
-  -> VaultRequest ()
+  -> VaultWrite
 destroyAppRoleSecretIdAccessorAt mp nm sec =
-  mkVaultRequest methodPost
+  mkVaultWrite methodPost
   ["v1", "auth", unMountPoint mp, "role", unRoleName nm, "secret-id-accessor", "destroy"]
-  (Just payload) Expects
+  (Just payload)
   where
     payload = BL.toLazyByteString . fromEncoding . pairs $ "secret_id_accessor" .= sec
 
 destroyAppRoleSecretIdAccessor
   :: AppRoleName
   -> AppRoleSecretIdAccessor
-  -> VaultRequest ()
+  -> VaultWrite
 destroyAppRoleSecretIdAccessor = destroyAppRoleSecretIdAccessorAt "approle"
 
 appRoleLoginAt
   :: MountPoint
   -> AppRoleId
   -> AppRoleSecretId
-  -> VaultRequest AuthResponse
+  -> VaultRequest Auth
 appRoleLoginAt mp rid sid =
   mkVaultRequest methodPost
   ["v1", "auth", unMountPoint mp, "login"]
-  (Just payload) Expects
+  (Just payload)
   where
     payload = BL.toLazyByteString . fromEncoding . pairs
       $ "role_id" .= rid <> "secret_id" .= sid
@@ -404,16 +403,15 @@ appRoleLoginAt mp rid sid =
 appRoleLogin
   :: AppRoleId
   -> AppRoleSecretId
-  -> VaultRequest AuthResponse
+  -> VaultRequest Auth
 appRoleLogin = appRoleLoginAt "approle"
 
-appRoleTidyTokensAt :: MountPoint -> VaultRequest (VaultResponse NoData)
+appRoleTidyTokensAt :: MountPoint -> VaultWrite
 appRoleTidyTokensAt mp =
-  mkVaultRequest methodPost
+  mkVaultWrite_ methodPost
   ["v1", "auth", unMountPoint mp, "tidy", "secret-id"]
-  Nothing Expects
 
-appRoleTidyTokens :: VaultRequest (VaultResponse NoData)
+appRoleTidyTokens :: VaultWrite
 appRoleTidyTokens = appRoleTidyTokensAt "approle"
 
 concat <$> sequence

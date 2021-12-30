@@ -1,16 +1,20 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GADTs         #-}
+{-# LANGUAGE DeriveFoldable    #-}
+{-# LANGUAGE DeriveFunctor     #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs             #-}
 module  HcVault.Client.Core
   ( VaultToken(..)
   , VaultRequest (..)
+  , VaultWrite (..)
   , WrappingToken(..)
-  , Expects (..)
-  , NoData (..)
   , mkVaultRequest
+  , mkVaultRequest_
   , mkVaultRequestJSON
+  , mkVaultWrite
+  , mkVaultWrite_
+  , mkVaultWriteJSON
   , VaultResponse(..)
-  , AuthResponse(..)
-  , WrapResponse(..)
   , Auth(..)
   , MountPoint(..)
   , WrapInfo(..)
@@ -75,16 +79,17 @@ data NoData = NoData
 instance FromJSON NoData where
   parseJSON _ = pure NoData
 
-data Expects a where
-  Expects :: FromJSON a => Expects a
-  ExpectsNoContent :: Expects ()
-
 data VaultRequest a = VaultRequest
   { vaultRequestMethod  :: !Method
   , vaultRequestPath    :: ![Text]
   , vaultRequestData    :: !(Maybe LBS.ByteString)
-  , vaultRequestResp    :: !(Expects a)
   , vaultRequestWrapTTL :: !(Maybe Int)
+  };
+
+data VaultWrite = VaultWrite
+  { vaultWriteMethod :: !Method
+  , vaultWritePath   :: ![Text]
+  , vaultWriteData   :: !(Maybe LBS.ByteString)
   };
 
 newtype LeaseId = LeaseId { unLeaseId :: Text }
@@ -155,31 +160,9 @@ data VaultResponse a = VaultResponse
   , warnings       :: ![Text]
   , data_          :: !a
   }
-  deriving stock (Show, Eq, Functor)
+  deriving stock (Show, Eq, Functor, Foldable, Traversable)
 
-data AuthResponse = AuthResponse
-  { lease_id       :: !LeaseId
-  , renewable      :: !Bool
-  , request_id     :: !RequestId
-  , lease_duration :: !Int
-  , warnings       :: ![Text]
-  , auth           :: !Auth
-  }
-  deriving stock (Show, Eq)
-
-
-data WrapResponse a = WrapResponse
-  { lease_id       :: !LeaseId
-  , renewable      :: !Bool
-  , request_id     :: !RequestId
-  , lease_duration :: !Int
-  , warnings       :: ![Text]
-  , wrap_info      :: !(WrapInfo a)
-  }
-  deriving stock (Show, Eq)
-
-
-instance FromJSON a => FromJSON (VaultResponse a) where
+instance {-# OVERLAPPABLE #-} FromJSON a => FromJSON (VaultResponse a) where
   parseJSON = withObject "VaultResponse" $ \o -> do
     lease_id        <- o .: "lease_id"
     renewable       <- o .: "renewable"
@@ -189,26 +172,25 @@ instance FromJSON a => FromJSON (VaultResponse a) where
     data_           <- o .: "data"
     pure VaultResponse {..}
 
-instance FromJSON AuthResponse where
+instance {-# OVERLAPS #-} FromJSON (VaultResponse Auth) where
   parseJSON = withObject "VaultResponse" $ \o -> do
     lease_id       <- o .: "lease_id"
     renewable      <- o .: "renewable"
     request_id     <- o .: "request_id"
     lease_duration <- o .: "lease_duration"
     warnings       <- o .:? "warnings" .!= []
-    auth           <- o .: "auth"
-    pure AuthResponse {..}
+    data_          <- o .: "auth"
+    pure VaultResponse {..}
 
-instance FromJSON (WrapResponse a) where
+instance {-# OVERLAPS #-} FromJSON (VaultResponse (WrapInfo a)) where
   parseJSON = withObject "VaultResponse" $ \o -> do
     lease_id       <- o .: "lease_id"
     renewable      <- o .: "renewable"
     request_id     <- o .: "request_id"
     lease_duration <- o .: "lease_duration"
     warnings       <- o .:? "warnings" .!= []
-    wrap_info      <- o .: "wrap_info"
-    pure WrapResponse {..}
-
+    data_          <- o .: "wrap_info"
+    pure VaultResponse {..}
 
 
 data VaultClientError
@@ -223,30 +205,50 @@ mkVaultRequest
   :: Method
   -> [Text]
   -> Maybe LBS.ByteString
-  -> Expects a
   -> VaultRequest a
-mkVaultRequest meth path dat resp = VaultRequest
+mkVaultRequest meth path dat = VaultRequest
   { vaultRequestPath = path
   , vaultRequestMethod = meth
   , vaultRequestData = dat
-  , vaultRequestResp = resp
   , vaultRequestWrapTTL = Nothing
   }
+
+mkVaultRequest_ :: Method -> [Text] -> VaultRequest a
+mkVaultRequest_ meth path = mkVaultRequest meth path Nothing
+
+
+mkVaultWrite
+  :: Method
+  -> [Text]
+  -> Maybe LBS.ByteString
+  -> VaultWrite
+mkVaultWrite meth path dat = VaultWrite
+  { vaultWritePath = path
+  , vaultWriteMethod = meth
+  , vaultWriteData = dat
+  }
+
+mkVaultWrite_ :: Method -> [Text] -> VaultWrite
+mkVaultWrite_ meth path = mkVaultWrite meth path Nothing
+
+mkVaultWriteJSON
+  :: ToJSON a
+  => Method
+  -> [Text]
+  -> a
+  -> VaultWrite
+mkVaultWriteJSON meth path =
+  mkVaultWrite meth path . Just . encode
+
 
 mkVaultRequestJSON
   :: ToJSON a
   => Method
   -> [Text]
   -> a
-  -> Expects b
   -> VaultRequest b
-mkVaultRequestJSON meth path dat resp = VaultRequest
-  { vaultRequestPath = path
-  , vaultRequestMethod = meth
-  , vaultRequestData = Just $! encode dat
-  , vaultRequestResp = resp
-  , vaultRequestWrapTTL = Nothing
-  }
+mkVaultRequestJSON meth path =
+  mkVaultRequest meth path . Just . encode
 
 methodList :: Method
 methodList = "LIST"

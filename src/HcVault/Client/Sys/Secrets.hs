@@ -104,15 +104,13 @@ mkSecretsEngineCreate type_ = SecretsEngineCreate
 secretsEngineCreate
   :: MountPoint
   -> SecretsEngineCreate
-  -> VaultRequest ()
+  -> VaultWrite
 secretsEngineCreate mp v =
-  mkVaultRequestJSON methodPost ["v1", "sys", "mounts", unMountPoint mp]
-  v ExpectsNoContent
+  mkVaultWriteJSON methodPost ["v1", "sys", "mounts", unMountPoint mp] v
 
-secretsEngineDisable :: MountPoint -> VaultRequest ()
+secretsEngineDisable :: MountPoint -> VaultWrite
 secretsEngineDisable mp =
-  mkVaultRequest methodDelete ["v1", "sys", "mounts", unMountPoint mp]
-  Nothing ExpectsNoContent
+  mkVaultWrite_ methodDelete ["v1", "sys", "mounts", unMountPoint mp]
 
 newtype SecretsEngineAccessor = SecretsEngineAccessor
   { unSecretsEngineAcceessor :: Text }
@@ -134,30 +132,27 @@ data SecretsEngineInfo = SecretsEngineInfo
 
 secretsEngineGetInfo
   :: MountPoint
-  -> VaultRequest (VaultResponse SecretsEngineInfo)
+  -> VaultRequest SecretsEngineInfo
 secretsEngineGetInfo mp =
-  mkVaultRequest methodGet ["v1", "sys", "mounts", unMountPoint mp]
-  Nothing Expects
+  mkVaultRequest_ methodGet ["v1", "sys", "mounts", unMountPoint mp]
 
-secretsEngineListMounts :: VaultRequest (VaultResponse (Map MountPoint SecretsEngineInfo))
+secretsEngineListMounts :: VaultRequest (Map MountPoint SecretsEngineInfo)
 secretsEngineListMounts =
-  mkVaultRequest methodGet ["v1", "sys", "mounts"]
-  Nothing Expects
+  mkVaultRequest_ methodGet ["v1", "sys", "mounts"]
 
 secretsEngineReadMount
   :: MountPoint
-  -> VaultRequest (VaultResponse SecretsEngineConfig)
+  -> VaultRequest SecretsEngineConfig
 secretsEngineReadMount mp =
-  mkVaultRequest methodGet ["v1", "sys", "mounts", unMountPoint mp, "tune"]
-  Nothing Expects
+  mkVaultRequest_ methodGet ["v1", "sys", "mounts", unMountPoint mp, "tune"]
 
 secretsEngineTuneMount
   :: MountPoint
   -> SecretsEngineConfig
-  -> VaultRequest ()
+  -> VaultWrite
 secretsEngineTuneMount mp conf =
-  mkVaultRequestJSON methodPost ["v1", "sys", "mounts", unMountPoint mp, "tune"]
-  conf ExpectsNoContent
+  mkVaultWriteJSON methodPost ["v1", "sys", "mounts", unMountPoint mp, "tune"]
+  conf
 
 concat <$> sequence
   [ vaultDeriveToJSON ''SecretsEngineConfig

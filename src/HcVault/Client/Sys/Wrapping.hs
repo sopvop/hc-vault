@@ -15,13 +15,12 @@ import           Data.Time (UTCTime)
 import           HcVault.Client.Core
 
 wrappingUnwrap
-  :: FromJSON a
-  => WrappingToken a
+  :: WrappingToken a
   -> VaultRequest a
 wrappingUnwrap tok =
   mkVaultRequest methodPost
   ["v1", "sys", "wrapping", "unwrap"]
-  (Just $ tokenPayload tok) Expects
+  (Just $ tokenPayload tok)
 
 tokenPayload tok =
   encodingToLazyByteString . pairs
@@ -37,33 +36,33 @@ data WrappingInfo = WrappingInfo
 
 wrappingLookup
   :: WrappingToken a
-  -> VaultRequest (VaultResponse WrappingInfo)
+  -> VaultRequest WrappingInfo
 wrappingLookup tok =
   mkVaultRequest methodPost
   ["v1", "sys", "wrapping", "lookup"]
-  (Just $ tokenPayload tok) Expects
+  (Just $ tokenPayload tok)
 
 wrappingRewrap
   :: Int
   -> WrappingToken a
-  -> VaultRequest (WrapResponse a)
+  -> VaultRequest (WrapInfo a)
 wrappingRewrap ttl tok =
   r { vaultRequestWrapTTL = Just ttl }
   where
     r = mkVaultRequest methodPost
       ["v1", "sys", "wrapping", "rewrap"]
-      (Just $ tokenPayload tok) Expects
+      (Just $ tokenPayload tok)
 
 wrappingWrap
   :: Int
   -> Map Text Text
-  -> VaultRequest (WrapResponse (VaultResponse (Map Text Text)))
+  -> VaultRequest (WrapInfo (Map Text Text))
 wrappingWrap ttl v =
   r { vaultRequestWrapTTL = Just ttl }
   where
     r = mkVaultRequest methodPost
       ["v1", "sys", "wrapping", "wrap"]
-      (Just $ encode v ) Expects
+      (Just $ encode v)
 
 concat <$> sequence [
   vaultDeriveFromJSON ''WrappingInfo
