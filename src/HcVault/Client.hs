@@ -8,11 +8,15 @@ module HcVault.Client
 
 import           Control.Monad
 import           Data.Aeson (ToJSON (..), eitherDecode')
+import           Data.Aeson.Types (parseEither)
 --    (Encoding, FromJSON (..), ToJSON, Value, decode', eitherDecode', encode,
 --    withObject, (.=))
 import           Data.Aeson.Encoding (encodingToLazyByteString)
 import qualified Data.ByteString.Builder as BL
 import qualified Data.ByteString.Lazy as LBS
+import           Data.Coerce (coerce)
+import           Data.Functor.Const
+import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
@@ -48,42 +52,34 @@ hXVaultRequest = "X-Vault-Request"
 hXVaultWrapTTL :: HeaderName
 hXVaultWrapTTL = "X-Vault-Wrap-TTL"
 
-mkRequest :: VaultClient -> VaultRequest a -> Request
+mkRequest :: VaultClient -> VaultRequest -> Request
 mkRequest VaultClient{..} VaultRequest{..} =
   vaultClientReq
   { C.path = LBS.toStrict . BL.toLazyByteString
-             $ encodePath vaultRequestPath mempty
-  , C.method = vaultRequestMethod
+             $ encodePath (NonEmpty.toList . unVaultPath $ _vaultRequestPath) mempty
+  , C.method = _vaultRequestMethod
   , C.requestHeaders =
     addTTL
     [ (hContentType, "application/json")
     , (hAuthorization,
        "Bearer " <> maybe mempty (Text.encodeUtf8 . unVaultToken) vaultClientToken)
     ]
-  , C.requestBody = C.RequestBodyLBS $ fromMaybe mempty vaultRequestData
+  , C.requestBody = C.RequestBodyLBS $ fromMaybe mempty _vaultRequestData
   }
   where
-    addTTL = maybe id (\v hs -> (hXVaultWrapTTL, bsInt v):hs) vaultRequestWrapTTL
+    addTTL = maybe id (\v hs -> (hXVaultWrapTTL, bsInt v):hs) _vaultRequestWrapTTL
     bsInt = LBS.toStrict . BL.toLazyByteString . BL.intDec
 
-makeVaultRequest :: VaultClient -> VaultRequest a -> IO a
+makeVaultRequest :: VaultClient -> VaultRequest -> IO (Maybe VaultResponse)
 makeVaultRequest vc@VaultClient{vaultClientManager} req = do
   r <- C.httpLbs r vaultClientManager
   let body = C.responseBody r
       st = C.responseStatus r
-  case vaultRequestResp req of
-    ExpectsNoContent
-      | st == noContent204 -> pure ()
-      | st == ok200 || st == accepted202 ->
-          throwIO $ VaultClientError "Unexpected response with content"
-      | otherwise -> throwBadRequest st body
-    Expects
-      | st == ok200 || st == accepted202 ->
-        either (throwIO . VaultClientError . Text.pack) pure
+  if | st == noContent204 -> pure Nothing
+     | st == ok200 || st == accepted202 ->
+         either (throwIO . VaultClientError . Text.pack) pure
            $ eitherDecode' body
-      | st == noContent204 ->
-          throwIO $ VaultClientError "Unexpected response with no content"
-      | otherwise -> throwBadRequest st body
+     | otherwise -> throwBadRequest st body
   where
     throwBadRequest st body
       | statusCode st >= 400 = throwIO $ VaultResponseError st m tp body
@@ -92,51 +88,144 @@ makeVaultRequest vc@VaultClient{vaultClientManager} req = do
     tp = Text.decodeLatin1 $ C.path r
     m = Text.decodeLatin1 $ C.method r
 
-vaultWrite :: VaultClient -> VaultRequest () -> IO ()
-vaultWrite vc req = () <$ makeVaultRequest vc req
-
-vaultWrite' :: VaultClient -> VaultRequest (VaultResponse NoData) -> IO ()
-vaultWrite' vc req = () <$ makeVaultRequest vc req
-
-
-vaultQuery :: VaultClient -> VaultRequest (VaultResponse a) -> IO a
-vaultQuery vc req = getData <$> makeVaultRequest vc req
+vaultWrite :: VaultClient -> VaultWrite -> IO ()
+vaultWrite vc VaultWrite{..} = () <$ makeVaultRequest vc req
   where
-    getData VaultResponse{..} = data_
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultWriteMethod
+      , _vaultRequestData = _vaultWriteData
+      , _vaultRequestPath = _vaultWritePath
+      , _vaultRequestWrapTTL = Nothing
+      }
 
-vaultAuth :: VaultClient -> VaultRequest AuthResponse -> IO Auth
-vaultAuth vc req = getAuth <$> makeVaultRequest vc req
+vaultQuery_ :: VaultClient -> VaultQuery a -> IO (QueryResponse a)
+vaultQuery_ vc VaultQuery{..} =
+    makeVaultRequest vc req >>= maybe noCont parseData
+  where
+    parseData VaultResponse{..} = do
+      d <- maybe noResp pure data_
+      case parseEither _vaultQueryResp d of
+        Left e -> throwIO $ VaultResponseParseError _vaultQueryPath (Text.pack e)
+        Right r -> pure $ QueryResponse{data_ = r, ..}
+
+    noResp = throwIO $ VaultResponseParseError _vaultQueryPath "No content returned by server"
+    noCont = throwIO $ VaultResponseParseError _vaultQueryPath "Server returned no content"
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultQueryMethod
+      , _vaultRequestData = _vaultQueryData
+      , _vaultRequestPath = _vaultQueryPath
+      , _vaultRequestWrapTTL = Nothing
+      }
+
+vaultQuery :: VaultClient -> VaultQuery a -> IO a
+vaultQuery vc q = getData <$> vaultQuery_ vc q
+  where
+    getData QueryResponse{..} = data_
+
+
+vaultAuth_ :: VaultClient -> VaultAuth -> IO AuthResponse
+vaultAuth_ vc VaultAuth{..} =
+    makeVaultRequest vc req >>= maybe noCont parseData
+  where
+    parseData VaultResponse{..} = maybe noAuth (\a -> pure AuthResponse{auth=a, ..}) auth
+    noAuth = throwIO $ VaultResponseParseError _vaultAuthPath "Server returned no auth"
+    noCont = throwIO $ VaultResponseParseError _vaultAuthPath "Server returned no content"
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultAuthMethod
+      , _vaultRequestData = _vaultAuthData
+      , _vaultRequestPath = _vaultAuthPath
+      , _vaultRequestWrapTTL = Nothing
+      }
+
+vaultAuth :: VaultClient -> VaultAuth -> IO Auth
+vaultAuth vc q = getAuth <$> vaultAuth_ vc q
   where
     getAuth AuthResponse{..} = auth
 
-vaultWrap
+parseWrapResponse p Nothing =
+  throwIO $ VaultResponseParseError  p "Server returned no content"
+parseWrapResponse p (Just VaultResponse{..}) =
+  maybe noWrap (\w -> pure WrapResponse {wrap_info=coerce w,..}) wrap_info
+  where
+    noWrap = throwIO $ VaultResponseParseError p "Server returned no vault_info"
+
+
+vaultWrap_
   :: VaultClient
-  -> VaultRequest (WrapResponse a)
-  -> IO (WrapInfo a)
-vaultWrap vc req = getWrap <$> vaultRequest vc req
+  -> Int
+  -> VaultWrap a
+  -> IO (WrapResponse a)
+vaultWrap_ vc ttl VaultQuery{..} =
+    makeVaultRequest vc req >>= parseWrapResponse _vaultQueryPath
+  where
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultQueryMethod
+      , _vaultRequestData = _vaultQueryData
+      , _vaultRequestPath = _vaultQueryPath
+      , _vaultRequestWrapTTL = Just ttl
+      }
+
+
+vaultWrapQuery_
+  :: VaultClient
+  -> Int
+  -> VaultQuery a
+  -> IO (WrapResponse (QueryResponse a))
+vaultWrapQuery_ vc ttl VaultQuery{..} =
+    makeVaultRequest vc req >>= parseWrapResponse _vaultQueryPath
+  where
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultQueryMethod
+      , _vaultRequestData = _vaultQueryData
+      , _vaultRequestPath = _vaultQueryPath
+      , _vaultRequestWrapTTL = Just ttl
+      }
+
+vaultWrapQuery
+  :: VaultClient
+  -> Int
+  -> VaultQuery a
+  -> IO (WrapInfo (QueryResponse a))
+vaultWrapQuery vc ttl q =
+  getWrap <$> vaultWrapQuery_ vc ttl q
   where
     getWrap WrapResponse{..} = wrap_info
 
-vaultWrapResponse :: VaultClient -> Int -> VaultRequest a -> IO (WrapInfo a)
-vaultWrapResponse vc ttl req = getWrap <$> makeVaultRequest vc wreq
+vaultWrapAuth_
+  :: VaultClient
+  -> Int
+  -> VaultAuth
+  -> IO (WrapResponse AuthResponse)
+vaultWrapAuth_ vc ttl VaultAuth{..} =
+    makeVaultRequest vc req >>= parseWrapResponse _vaultAuthPath
+  where
+    req = VaultRequest
+      { _vaultRequestMethod = _vaultAuthMethod
+      , _vaultRequestData = _vaultAuthData
+      , _vaultRequestPath = _vaultAuthPath
+      , _vaultRequestWrapTTL = Just ttl
+      }
+
+vaultWrapAuth
+  :: VaultClient
+  -> Int
+  -> VaultAuth
+  -> IO (WrapInfo AuthResponse)
+vaultWrapAuth vc ttl q =
+  getWrap <$> vaultWrapAuth_ vc ttl q
   where
     getWrap WrapResponse{..} = wrap_info
-    wreq = req { vaultRequestWrapTTL = Just ttl
-               , vaultRequestResp = Expects
-               }
+
 
 vaultWrapValue
   :: VaultClient
   -> Int
   -> Map Text Text
-  -> IO (WrapInfo (VaultResponse (Map Text Text)))
+  -> IO (WrapInfo (QueryResponse (Map Text Text)))
 vaultWrapValue vc ttl val =
-    getWrap <$> vaultRequest vc (wrappingWrap ttl val)
+    getWrap <$> vaultWrap vc (wrappingWrap ttl val)
   where
     getWrap WrapResponse{..} = wrap_info
-
-vaultRequest :: VaultClient -> VaultRequest a -> IO a
-vaultRequest = makeVaultRequest
 
 mkVaultClient
   :: Manager
@@ -146,6 +235,11 @@ mkVaultClient
 mkVaultClient manager host token = do
   !h <- C.parseRequest host
   pure $ VaultClient token manager h
+
+{-
+vaultRequest :: VaultClient -> VaultRequest a -> IO a
+vaultRequest = makeVaultRequest
+
 
 
 foo = do
@@ -190,3 +284,4 @@ foo = do
   -- Does not work?
   -- print <=< vaultQuery c $ secretsEngineGetInfo "pki-logging"
   vaultWrite c $ secretsEngineDisable "pki-logging"
+-}

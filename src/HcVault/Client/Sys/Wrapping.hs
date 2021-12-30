@@ -6,8 +6,9 @@ module HcVault.Client.Sys.Wrapping
   , wrappingWrap
   ) where
 
-import           Data.Aeson (FromJSON, encode, pairs, (.=))
+import           Data.Aeson (FromJSON (..), encode, pairs, (.=))
 import           Data.Aeson.Encoding (encodingToLazyByteString)
+import qualified Data.ByteString.Lazy as LBS
 import           Data.Map.Strict (Map)
 import           Data.Text (Text)
 import           Data.Time (UTCTime)
@@ -17,12 +18,14 @@ import           HcVault.Client.Core
 wrappingUnwrap
   :: FromJSON a
   => WrappingToken a
-  -> VaultRequest a
+  -> VaultQuery a
 wrappingUnwrap tok =
-  mkVaultRequest methodPost
-  ["v1", "sys", "wrapping", "unwrap"]
-  (Just $ tokenPayload tok) Expects
+  mkVaultQuery methodPost
+  (pathV1 ["sys", "wrapping", "unwrap"])
+  (Just $ tokenPayload tok)
+  parseJSON
 
+tokenPayload :: WrappingToken a -> LBS.ByteString
 tokenPayload tok =
   encodingToLazyByteString . pairs
   $ "token" .= getWrappingToken tok
@@ -37,33 +40,34 @@ data WrappingInfo = WrappingInfo
 
 wrappingLookup
   :: WrappingToken a
-  -> VaultRequest (VaultResponse WrappingInfo)
+  -> VaultQuery WrappingInfo
 wrappingLookup tok =
-  mkVaultRequest methodPost
-  ["v1", "sys", "wrapping", "lookup"]
-  (Just $ tokenPayload tok) Expects
+  mkVaultQuery methodPost
+  (pathV1 ["sys", "wrapping", "lookup"])
+  (Just $ tokenPayload tok)
+  parseJSON
 
 wrappingRewrap
   :: Int
   -> WrappingToken a
-  -> VaultRequest (WrapResponse a)
-wrappingRewrap ttl tok =
-  r { vaultRequestWrapTTL = Just ttl }
-  where
-    r = mkVaultRequest methodPost
-      ["v1", "sys", "wrapping", "rewrap"]
-      (Just $ tokenPayload tok) Expects
+  -> VaultWrap a
+wrappingRewrap ttl tok = VaultWrap
+  { _vaultWrapMethod = methodPost
+  , _vaultWrapPath = pathV1 ["sys", "wrapping", "rewrap"]
+  , _vaultWrapData = Just $ tokenPayload tok
+  , _vaultWrapWrapTTL = Just ttl
+  }
 
 wrappingWrap
   :: Int
   -> Map Text Text
-  -> VaultRequest (WrapResponse (VaultResponse (Map Text Text)))
-wrappingWrap ttl v =
-  r { vaultRequestWrapTTL = Just ttl }
-  where
-    r = mkVaultRequest methodPost
-      ["v1", "sys", "wrapping", "wrap"]
-      (Just $ encode v ) Expects
+  -> VaultWrap (WrapResponse (QueryResponse (Map Text Text)))
+wrappingWrap ttl v = VaultWrap
+  { _vaultWrapMethod = methodPost
+  , _vaultWrapPath = pathV1 ["sys", "wrapping", "wrap"]
+  , _vaultWrapData = Just $ encode v
+  , _vaultWrapWrapTTL = Just ttl
+  }
 
 concat <$> sequence [
   vaultDeriveFromJSON ''WrappingInfo
