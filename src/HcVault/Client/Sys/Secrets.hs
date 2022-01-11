@@ -1,15 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module HcVault.Client.Sys.Secrets
-  ( secretsEngineCreate
-  , secretsEngineDisable
+  ( enableSecretsEngine
+  , disableSecretsEngine
   , SecretsEngineCreate(..)
   , mkSecretsEngineCreate
   , SecretsEngineConfig(..)
   , mkSecretsEngineConfig
-  , secretsEngineGetInfo
-  , secretsEngineListMounts
-  , secretsEngineReadMount
-  , secretsEngineTuneMount
+  , readSecretsEngine
+  , listSecretsEngineMounts
+  , readSecretsEngineMount
+  , tuneSecretsEngineMount
   ) where
 
 import           Data.Aeson (FromJSON (..), ToJSON, withObject, (.!=), (.:?))
@@ -101,15 +101,15 @@ mkSecretsEngineCreate type_ = SecretsEngineCreate
   , external_entropy_access = False
   }
 
-secretsEngineCreate
+enableSecretsEngine
   :: MountPoint
   -> SecretsEngineCreate
   -> VaultWrite
-secretsEngineCreate mp v =
+enableSecretsEngine mp v =
   mkVaultWriteJSON methodPost ["v1", "sys", "mounts", unMountPoint mp] v
 
-secretsEngineDisable :: MountPoint -> VaultWrite
-secretsEngineDisable mp =
+disableSecretsEngine :: MountPoint -> VaultWrite
+disableSecretsEngine mp =
   mkVaultWrite_ methodDelete ["v1", "sys", "mounts", unMountPoint mp]
 
 newtype SecretsEngineAccessor = SecretsEngineAccessor
@@ -117,7 +117,7 @@ newtype SecretsEngineAccessor = SecretsEngineAccessor
   deriving stock (Eq, Ord, Show)
   deriving newtype (FromJSON, ToJSON)
 
-data SecretsEngineInfo = SecretsEngineInfo
+data SecretsEngine = SecretsEngine
   { type_                   :: Text
   , description             :: Text
   , config                  :: SecretsEngineConfig
@@ -130,32 +130,32 @@ data SecretsEngineInfo = SecretsEngineInfo
   }
   deriving stock (Show, Eq)
 
-secretsEngineGetInfo
+readSecretsEngine
   :: MountPoint
-  -> VaultRequest SecretsEngineInfo
-secretsEngineGetInfo mp =
+  -> VaultRequest SecretsEngine
+readSecretsEngine mp =
   mkVaultRequest_ methodGet ["v1", "sys", "mounts", unMountPoint mp]
 
-secretsEngineListMounts :: VaultRequest (Map MountPoint SecretsEngineInfo)
-secretsEngineListMounts =
+listSecretsEngineMounts :: VaultRequest (Map MountPoint SecretsEngine)
+listSecretsEngineMounts =
   mkVaultRequest_ methodGet ["v1", "sys", "mounts"]
 
-secretsEngineReadMount
+readSecretsEngineMount
   :: MountPoint
   -> VaultRequest SecretsEngineConfig
-secretsEngineReadMount mp =
+readSecretsEngineMount mp =
   mkVaultRequest_ methodGet ["v1", "sys", "mounts", unMountPoint mp, "tune"]
 
-secretsEngineTuneMount
+tuneSecretsEngineMount
   :: MountPoint
   -> SecretsEngineConfig
   -> VaultWrite
-secretsEngineTuneMount mp conf =
+tuneSecretsEngineMount mp conf =
   mkVaultWriteJSON methodPost ["v1", "sys", "mounts", unMountPoint mp, "tune"]
   conf
 
 concat <$> sequence
   [ vaultDeriveToJSON ''SecretsEngineConfig
   , vaultDeriveToJSON ''SecretsEngineCreate
-  , vaultDeriveFromJSON ''SecretsEngineInfo
+  , vaultDeriveFromJSON ''SecretsEngine
   ]

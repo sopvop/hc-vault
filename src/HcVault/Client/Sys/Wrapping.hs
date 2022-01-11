@@ -6,8 +6,9 @@ module HcVault.Client.Sys.Wrapping
   , wrappingWrap
   ) where
 
-import           Data.Aeson (FromJSON, encode, pairs, (.=))
+import           Data.Aeson (encode, pairs, (.=))
 import           Data.Aeson.Encoding (encodingToLazyByteString)
+import qualified Data.ByteString.Lazy as LBS
 import           Data.Map.Strict (Map)
 import           Data.Text (Text)
 import           Data.Time (UTCTime)
@@ -22,6 +23,7 @@ wrappingUnwrap tok =
   ["v1", "sys", "wrapping", "unwrap"]
   (Just $ tokenPayload tok)
 
+tokenPayload :: WrappingToken a -> LBS.ByteString
 tokenPayload tok =
   encodingToLazyByteString . pairs
   $ "token" .= getWrappingToken tok

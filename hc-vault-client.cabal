@@ -60,9 +60,12 @@ library
   default-language: Haskell2010
   exposed-modules:
     HcVault.Client
-    HcVault.Client.Core
     HcVault.Client.Auth.AppRole
+    HcVault.Client.Core
+    HcVault.Client.Secrets.KV
+    HcVault.Client.Secrets.PKI
     HcVault.Client.Sys.Auth
+    HcVault.Client.Sys.Secrets
     HcVault.Client.Sys.Wrapping
   build-depends: bytestring ^>= 0.10.12.0,
                  template-haskell >= 2.16.0.0,

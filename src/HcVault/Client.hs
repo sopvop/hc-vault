@@ -6,45 +6,47 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module HcVault.Client
-  (
+  ( VaultClient(..)
+  , VaultToken(..)
+  , mkVaultClient
+  , vaultQuery
+  , vaultWrite
+  , vaultWrap
+  , vaultUnwrap
+  , vaultQueryIfFound
+  , vaultQuery_
+  , vaultWrap_
+  , MountPoint(..)
+  , module Export
   ) where
 
 import           Control.Monad
-import           Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode')
---    (Encoding, FromJSON (..), ToJSON, Value, decode', eitherDecode', encode,
---    withObject, (.=))
-import           Data.Aeson.Encoding (encodingToLazyByteString)
-import           Data.Aeson.Types (Parser, Value, parseEither)
+import           Data.Aeson (FromJSON (..), eitherDecode')
 import qualified Data.ByteString.Builder as BL
 import qualified Data.ByteString.Lazy as LBS
-import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
-import           Data.String (IsString)
-import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           HcVault.Client.Core
 import           Network.HTTP.Client as C
 import           Network.HTTP.Types.Header
-import           Network.HTTP.Types.Method
 import           Network.HTTP.Types.Status
 import           Network.HTTP.Types.URI
-import           UnliftIO (Exception, throwIO)
+import           UnliftIO (throwIO, try)
 
-import           HcVault.Client.Auth.AppRole
-import           HcVault.Client.Sys.Auth
-import           HcVault.Client.Sys.Secrets
-import           HcVault.Client.Sys.Wrapping
+import           HcVault.Client.Auth.AppRole as Export
+import           HcVault.Client.Secrets.KV as Export
+import           HcVault.Client.Secrets.PKI as Export
+import           HcVault.Client.Sys.Auth as Export
+import           HcVault.Client.Sys.Secrets as Export
+import           HcVault.Client.Sys.Wrapping as Export
 
 data VaultClient = VaultClient
   { vaultClientToken   :: !(Maybe VaultToken)
   , vaultClientManager :: !C.Manager
   , vaultClientReq     :: !C.Request
   }
-
-hXVaultToken :: HeaderName
-hXVaultToken = "X-Vault-Token"
 
 hXVaultRequest :: HeaderName
 hXVaultRequest = "X-Vault-Request"
@@ -56,17 +58,19 @@ mkRequest :: VaultClient -> VaultRequest a -> Request
 mkRequest VaultClient{..} VaultRequest{..} =
   vaultClientReq
   { C.path = LBS.toStrict . BL.toLazyByteString
-             $ encodePath vaultRequestPath mempty
+             $ encodePath vaultRequestPath (queryTextToQuery vaultRequestQuery)
   , C.method = vaultRequestMethod
   , C.requestHeaders =
-    addTTL
+    addCT $ addTTL
     [ (hContentType, "application/json")
+    , (hXVaultRequest, "true")
     , (hAuthorization,
        "Bearer " <> maybe mempty (Text.encodeUtf8 . unVaultToken) vaultClientToken)
     ]
   , C.requestBody = C.RequestBodyLBS $ fromMaybe mempty vaultRequestData
   }
   where
+    addCT = maybe id (\v hs -> (hContentType, v):hs) vaultRequestCT
     addTTL = maybe id (\v hs -> (hXVaultWrapTTL, bsInt v):hs) vaultRequestWrapTTL
     bsInt = LBS.toStrict . BL.toLazyByteString . BL.intDec
 
@@ -101,8 +105,10 @@ vaultWrite vc VaultWrite{..} = () <$ makeVaultRequest vc req
     req = VaultRequest
       { vaultRequestData = vaultWriteData
       , vaultRequestPath = vaultWritePath
+      , vaultRequestQuery = mempty
       , vaultRequestMethod = vaultWriteMethod
       , vaultRequestWrapTTL = Nothing
+      , vaultRequestCT = Nothing
       }
 
 vaultQuery
@@ -113,6 +119,20 @@ vaultQuery
 vaultQuery vc req = getData <$> vaultQuery_ vc req
   where
     getData VaultResponse{..} = data_
+
+vaultQueryIfFound
+  :: FromJSON (VaultResponse a)
+  => VaultClient
+  -> VaultRequest a
+  -> IO (Maybe a)
+vaultQueryIfFound vc req = do
+  r <- try $ vaultQuery vc req
+  case r of
+    Left e@(VaultResponseError st _ _ _)
+      | st == status404 -> pure Nothing
+      | otherwise -> throwIO e
+    Left e -> throwIO e
+    Right r -> pure (Just r)
 
 vaultWrap_
   :: VaultClient
@@ -160,7 +180,7 @@ mkVaultClient manager host token = do
 
 foo = do
   m <- newManager defaultManagerSettings
-  c <- mkVaultClient m "http://localhost:8200" (Just "s.rTfinVptoxok9trPZ349ftRX")
+  c <- mkVaultClient m "http://localhost:8200" (Just "s.OW4ktA0EN5hwDBqrTCPWTpvR")
   vaultWrite c $ disableAuthMethod "xxx"
   vaultWrite c $ enableAuthMethod "xxx" $ mkAuthMethodEnable "approle"
   tune <- vaultQuery c $ readAuthMethodTuning "xxx"
@@ -184,6 +204,9 @@ foo = do
   print <=< vaultQuery c $ readAppRoleSecretIdInfoAt "xxx" "foo" secret_id
   print <=< vaultQuery c $ readAppRoleSecretIdAccessorInfoAt "xxx" "foo" secret_id_accessor
   print <=< vaultQuery c $ appRoleLoginAt "xxx" role_id secret_id
+  wi@WrapInfo{..} <- vaultWrap c 400 $ appRoleLoginAt "xxx" role_id secret_id
+  print =<< vaultUnwrap c token
+  print wi
   wi <- vaultWrap c 3600 $ appRoleGenerateSecretIdAt "xxx" "foo" mkAppRoleGenerateSecretId
   vaultWrite c $ appRoleTidyTokensAt "xxx"
   let WrapInfo{..} = wi
@@ -193,12 +216,12 @@ foo = do
   print <=< vaultQuery c $ wrappingLookup token
   WrapInfo {..} <- vaultQuery c $ wrappingRewrap 300 token
   print <=< vaultQuery c $ wrappingUnwrap token
-  print <=< vaultQuery c $ secretsEngineListMounts
-  vaultWrite c $ secretsEngineDisable "pki-logging"
-  vaultWrite c $ secretsEngineCreate "pki-logging" (mkSecretsEngineCreate "pki")
-  print <=< vaultQuery c $ secretsEngineReadMount "pki-logging"
-  vaultWrite c $ secretsEngineTuneMount "pki-logging" mkSecretsEngineConfig
+  print <=< vaultQuery c $ listSecretsEngineMounts
+  vaultWrite c $ disableSecretsEngine "pki-logging"
+  vaultWrite c $ enableSecretsEngine "pki-logging" (mkSecretsEngineCreate "pki")
+  print <=< vaultQuery c $ readSecretsEngineMount "pki-logging"
+  vaultWrite c $ tuneSecretsEngineMount "pki-logging" mkSecretsEngineConfig
   -- Does not work?
   --print <=< vaultQuery c $ secretsEngineGetInfo "pki-logging"
-  vaultWrite c $ secretsEngineDisable "pki-logging"
+  vaultWrite c $ disableSecretsEngine "pki-logging"
 

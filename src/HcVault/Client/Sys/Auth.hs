@@ -4,16 +4,21 @@ module HcVault.Client.Sys.Auth
   , disableAuthMethod
   , readAuthMethodTuning
   , tuneAuthMethod
-  , AuthMethodEnable(..)
+  , listAuthMethods
+  , AuthMethod(..)
   , AuthMethodConfig(..)
   , AuthMethodTuning(..)
+  , AuthMethodAccessor(..)
+  , AuthMethodEnable(..)
   , mkAuthMethodEnable
   , mkAuthMethodConfig
   , mkAuthMethodTuning
   ) where
 
-import           Data.Aeson (FromJSON (..), withObject, (.!=), (.:?))
+import           Data.Aeson (FromJSON (..), ToJSON, withObject, (.!=), (.:?))
+import           Data.Map.Strict (Map)
 import           Data.Text (Text)
+import           Data.UUID.Types (UUID)
 import           HcVault.Client.Core
 
 
@@ -42,9 +47,9 @@ mkAuthMethodEnable type_ = AuthMethodEnable
   }
 
 data AuthMethodConfig = AuthMethodConfig
-  { default_lease_ttl            :: !Text
+  { default_lease_ttl            :: !Int
     -- ^ The default lease duration, specified as a string duration like "5s" or "30m".
-  , max_lease_ttl                :: !Text
+  , max_lease_ttl                :: !Int
     -- ^ The maximum lease duration, specified as a string duration like "5s" or "30m".
   , audit_non_hmac_request_keys  :: ![Text]
     -- ^ List of keys that will not be HMAC'd by audit devices in the request data object.
@@ -60,14 +65,27 @@ data AuthMethodConfig = AuthMethodConfig
 
 mkAuthMethodConfig :: AuthMethodConfig
 mkAuthMethodConfig = AuthMethodConfig
-  { default_lease_ttl = mempty
-  , max_lease_ttl = mempty
+  { default_lease_ttl = 0
+  , max_lease_ttl = 0
   , audit_non_hmac_request_keys = mempty
   , audit_non_hmac_response_keys = []
   , listing_visibility = mempty
   , passthrough_request_headers = []
   , allowed_response_headers = []
   }
+
+instance FromJSON AuthMethodConfig where
+  parseJSON = withObject "AuthMethodConfig" $ \o -> do
+    default_lease_ttl            <- o .:? "default_lease_ttl" .!= 0
+    max_lease_ttl                <- o .:? "max_lease_ttl" .!= 0
+    audit_non_hmac_request_keys  <- o .:? "audit_non_hmac_request_keys" .!= []
+    audit_non_hmac_response_keys <- o .:? "audit_non_hmac_response_keys" .!= []
+    listing_visibility           <- o .:? "listing_visibility" .!= ""
+    passthrough_request_headers  <- o .:? "passthrough_request_headers" .!= []
+    allowed_response_headers     <- o .:? "allowed_response_headers" .!= []
+    pure AuthMethodConfig{..}
+
+
 
 -- | This endpoint enables a new auth method. After enabling, the auth method
 -- can be accessed and configured via the auth path specified as part of the
@@ -142,6 +160,29 @@ instance FromJSON AuthMethodTuning where
     pure AuthMethodTuning{..}
 
 
+newtype AuthMethodAccessor = AuthMethodAccessor
+  { unAuthMethodAcceessor :: Text }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (FromJSON, ToJSON)
+
+data AuthMethod = AuthMethod
+  { type_                   :: !Text
+  , description             :: !Text
+  , local                   :: !Bool
+  , seal_wrap               :: !Bool
+  , config                  :: !AuthMethodConfig
+  , options                 :: !(Maybe (Map Text Text))
+  , external_entropy_access :: Bool
+  , accessor                :: AuthMethodAccessor
+  , uuid                    :: UUID
+  }
+  deriving stock (Show, Eq)
+
+
+listAuthMethods :: VaultRequest (Map MountPoint AuthMethod)
+listAuthMethods = mkVaultRequest_ methodGet
+  ["v1", "sys", "auth"]
+
 -- | This endpoint reads the given auth path's configuration.
 readAuthMethodTuning :: MountPoint -> VaultRequest AuthMethodTuning
 readAuthMethodTuning mp =
@@ -156,18 +197,6 @@ tuneAuthMethod mp conf =
 concat <$> sequence
   [ vaultDeriveToJSON ''AuthMethodConfig
   , vaultDeriveToJSON ''AuthMethodEnable
+  , vaultDeriveFromJSON ''AuthMethod
   , vaultDeriveToJSON ''AuthMethodTuning
   ]
-
-{-
-xx :: VaultClient -> IO ()
-xx c = vaultWrite c $ enableAuth "xxx" $ AuthEnable "" "approle" (AuthConfig "" "")
-
-foo = do
-  m <- newManager defaultManagerSettings
-  c <- mkVaultClient m "http://localhost:8200" (Just "s.lNZy9UolVZ7B4sSI7w5F8YeT")
-  vaultWrite c $ disableAuth "xxx"
-  xx c
-
-
--}

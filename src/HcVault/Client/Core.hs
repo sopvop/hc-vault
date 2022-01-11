@@ -28,6 +28,7 @@ module  HcVault.Client.Core
   , methodPut
   , methodDelete
   , methodList
+  , methodPatch
   , vaultDeriveToJSON
   , vaultDeriveFromJSON
   ) where
@@ -38,6 +39,7 @@ import           Data.Aeson
     encode, withObject, (.!=), (.:), (.:?))
 import           Data.Aeson.TH
     (Options (..), defaultOptions, deriveFromJSON, deriveToJSON)
+import           Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
 import           Data.Coerce (coerce)
 import           Data.Map.Strict (Map)
@@ -48,6 +50,7 @@ import           Data.Time (UTCTime)
 import           Language.Haskell.TH.Syntax (Dec, Name, Q)
 import           Network.HTTP.Types.Method
 import           Network.HTTP.Types.Status
+import           Network.HTTP.Types.URI
 
 newtype MountPoint = MountPoint
   { unMountPoint :: Text }
@@ -82,8 +85,10 @@ instance FromJSON NoData where
 data VaultRequest a = VaultRequest
   { vaultRequestMethod  :: !Method
   , vaultRequestPath    :: ![Text]
+  , vaultRequestQuery   :: !QueryText
   , vaultRequestData    :: !(Maybe LBS.ByteString)
   , vaultRequestWrapTTL :: !(Maybe Int)
+  , vaultRequestCT      :: !(Maybe ByteString)
   };
 
 data VaultWrite = VaultWrite
@@ -208,9 +213,11 @@ mkVaultRequest
   -> VaultRequest a
 mkVaultRequest meth path dat = VaultRequest
   { vaultRequestPath = path
+  , vaultRequestQuery = mempty
   , vaultRequestMethod = meth
   , vaultRequestData = dat
   , vaultRequestWrapTTL = Nothing
+  , vaultRequestCT = Nothing
   }
 
 mkVaultRequest_ :: Method -> [Text] -> VaultRequest a
