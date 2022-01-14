@@ -109,9 +109,9 @@ newtype AuthAccessor = AuthAccessor { unAuthAccessor :: Text }
   deriving stock (Eq, Ord, Show)
   deriving newtype (FromJSON, ToJSON)
 
-newtype PolicyName = PolicyName { unRequestId :: Text }
+newtype PolicyName = PolicyName { unPolicyName :: Text }
   deriving stock (Eq, Ord, Show)
-  deriving newtype (FromJSON, ToJSON)
+  deriving newtype (FromJSON, ToJSON, IsString)
 
 newtype KeyList a = KeyList { getKeyList::[a] }
   deriving stock (Eq, Show)

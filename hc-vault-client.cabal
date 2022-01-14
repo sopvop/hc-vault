@@ -66,6 +66,7 @@ library
     HcVault.Client.Secrets.PKI
     HcVault.Client.Sys.Auth
     HcVault.Client.Sys.Secrets
+    HcVault.Client.Sys.Policies
     HcVault.Client.Sys.Wrapping
   build-depends: bytestring ^>= 0.10.12.0,
                  template-haskell >= 2.16.0.0,

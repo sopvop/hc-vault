@@ -14,6 +14,7 @@ module HcVault.Client
   , vaultWrap
   , vaultUnwrap
   , vaultQueryIfFound
+  , vaultList
   , vaultQuery_
   , vaultWrap_
   , MountPoint(..)
@@ -39,6 +40,7 @@ import           HcVault.Client.Auth.AppRole as Export
 import           HcVault.Client.Secrets.KV as Export
 import           HcVault.Client.Secrets.PKI as Export
 import           HcVault.Client.Sys.Auth as Export
+import           HcVault.Client.Sys.Policies as Export
 import           HcVault.Client.Sys.Secrets as Export
 import           HcVault.Client.Sys.Wrapping as Export
 
@@ -133,6 +135,16 @@ vaultQueryIfFound vc req = do
       | otherwise -> throwIO e
     Left e -> throwIO e
     Right r -> pure (Just r)
+
+vaultList
+  :: FromJSON a
+  => VaultClient
+  -> VaultRequest (KeyList a)
+  -> IO [a]
+vaultList vc = fmap toRes . vaultQueryIfFound vc
+  where
+    toRes Nothing = []
+    toRes (Just (KeyList x)) = x
 
 vaultWrap_
   :: VaultClient
